@@ -5,8 +5,6 @@ export default defineConfig({
   format: ['esm'],
   dts: true,
   clean: true,
-  // Bundle @getrheo/contracts so the published binary does not need TS sources.
-  noExternal: ['@getrheo/contracts'],
   banner: {
     js: '#!/usr/bin/env node',
   },

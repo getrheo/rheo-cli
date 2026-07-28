@@ -31,13 +31,6 @@ importers:
         version: 8.65.0(eslint@10.8.0)(typescript@5.9.3)
 
   packages/cli:
-    dependencies:
-      '@getrheo/contracts':
-        specifier: 2.3.0
-        version: 2.3.0
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
     devDependencies:
       '@rheo/config':
         specifier: workspace:*
@@ -588,12 +581,6 @@ packages:
     dependencies:
       '@eslint/core': 1.2.1
       levn: 0.4.1
-
-  /@getrheo/contracts@2.3.0:
-    resolution: {integrity: sha512-2aN8GjjDRL6l9JA/JBHpZlEOiEadCuNqhyU8gdG/1QaMm+Y3ihxjsFFdB9PziRD5si9OfKo/FiNYEJ2AzkTYIg==}
-    dependencies:
-      zod: 3.25.76
-    dev: false
 
   /@humanfs/core@0.19.2:
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -2146,7 +2133,3 @@ packages:
   /yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
-
-  /zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-    dev: false
