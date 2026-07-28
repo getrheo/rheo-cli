@@ -1,4 +1,3 @@
-import { WORKSPACE_API_KEY_PREFIX } from '@getrheo/contracts/constants';
 import {
   DEFAULT_API_URL,
   readConfig,
@@ -9,6 +8,9 @@ import {
 } from '../config.js';
 import { printBanner } from '../banner.js';
 import { printError, printJson, printKv, printSuccess } from '../format.js';
+
+/** Matches `@getrheo/contracts` `WORKSPACE_API_KEY_PREFIX` (kept local so CLI builds against published npm contracts). */
+const WORKSPACE_API_KEY_PREFIX = 'rheo_wk_';
 
 export const runAuthLogin = (opts: {
   apiKey: string;
