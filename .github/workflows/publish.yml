@@ -1,0 +1,35 @@
+name: Publish npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm --filter @getrheo/cli publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Deprecate previous npm versions
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          MESSAGE="Deprecated: upgrade to ${VERSION} or later — https://docs.getrheo.io/docs/developer-guide/sdk"
+          for PKG in @getrheo/cli; do
+            npm deprecate "${PKG}@<${VERSION}" "${MESSAGE}" || true
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+

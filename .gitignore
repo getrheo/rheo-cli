@@ -1,0 +1,12 @@
+node_modules
+dist
+.turbo
+coverage
+.DS_Store
+*.log
+**/*.tsbuildinfo
+packages/rheo-skill/.venv-skills-ref
+**/.swiftpm
+**/.build
+**/xcuserdata
+**/*.xcuserstate
