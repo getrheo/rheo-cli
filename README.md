@@ -8,7 +8,7 @@ Public home for [`@getrheo/cli`](https://www.npmjs.com/package/%40getrheo%2Fcli)
 | --- | --- |
 | [`@getrheo/cli`](https://www.npmjs.com/package/%40getrheo%2Fcli) | `rheo` binary — auth, whoami, apps, flows, channels, experiments, analytics, rollouts, media |
 
-**Current release line:** `2.4.0.x` (publish on git tag `v2.4.0`).
+**Current release line:** `2.5.0.x` (publish on git tag `v2.5.0`).
 
 ## Install
 
