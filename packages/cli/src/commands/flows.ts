@@ -11,9 +11,12 @@ type FlowItem = {
 export const runFlowsList = async (opts: {
   http: HttpClient;
   appId: string;
+  includeArchived?: boolean;
   json?: boolean;
 }): Promise<number> => {
-  const body = (await opts.http.get(`/v1/dashboard/apps/${opts.appId}/flows`)) as {
+  const body = (await opts.http.get(`/v1/dashboard/apps/${opts.appId}/flows`, {
+    includeArchived: opts.includeArchived ? 'true' : undefined,
+  })) as {
     items: FlowItem[];
   };
   if (opts.json) {

@@ -1,6 +1,8 @@
 # @getrheo/cli
 
-Rheo CLI for workspace members — read and write product content with a personal workspace API key.
+Rheo CLI for workspace members — read and write product content with a personal workspace API key, plus local flow import via `rheo import`.
+
+Published as **`3.0.0`**, aligned with `PLATFORM_SDK_VERSION` in `scripts/publish-package-registry.mjs`.
 
 ## Install
 
@@ -13,10 +15,10 @@ npx @getrheo/cli --help
 ## Auth
 
 1. In the Rheo dashboard, open **Account → Personal** and create a **CLI API key** (`rheo_wk_…`). Any workspace member can mint a personal key.
-2. Save it locally:
+2. Save it locally (login validates the key against the API):
 
 ```bash
-rheo auth login --api-key rheo_wk_…
+rheo auth login --api-key rheo_wk_… [--api-url http://127.0.0.1:4000]
 ```
 
 Or set `RHEO_API_KEY` (and optionally `RHEO_API_URL`) for CI.
@@ -26,34 +28,41 @@ Keys are **workspace-scoped** and **user-bound**. Mutations follow your live wor
 ## Commands
 
 ```bash
+rheo version
 rheo whoami
 
 # Apps
 rheo apps list|get|create|update|branding|delete
+rheo apps keys list <appId>
 
-# Flows
-rheo flows list|get|draft|versions|version|create|update|save-draft|publish|archive|unarchive|duplicate
+# Customers
+rheo customers overview|list <appId>
+rheo customers get|variables <appId> <appUserId>
 
-# Channels
-rheo channels list|history|create|update|archive|unarchive|assign|unassign
+# Flows / banners
+rheo flows list <appId> [--include-archived] | rheo flows …
+rheo banners … | rheo flows comments … | rheo flows rheo-agent …
 
-# Experiments
-rheo experiments list|get|stats|…|create|update|delete|add-variant|…|stop|promote
+# Channels, experiments, analytics, rollouts, media, Engage
+rheo channels … | rheo experiments … | rheo analytics …
+rheo rollouts … | rheo media list|upload|usage …
+rheo engage …   # content-blocks, composers: rheo engage help
 
-# Analytics (read; default last 7 UTC days)
-rheo analytics app-overview <appId>
-rheo analytics <kind> <flowId>
+# Workspace
+rheo keys workspace list|create|revoke
+rheo members … | rheo billing status | rheo notifications …
+rheo me email-preferences … | rheo onboarding … | rheo self-serve …
+rheo store-listing-lookup | rheo ai brand-colors|translate-chunk …
 
-# Rollouts
-rheo rollouts policy|policy-set|list|get|channel-list|submit|approve|reject
-
-# Media
-rheo media list|sign-upload|confirm|upload|rename|archive
+# Local import (no API; Rheo agent skill)
+rheo import validate|normalize|summary|scaffold|audit|audit-publish|profile
 ```
 
 Write bodies: `--body '{"…"}'` or `--file payload.json`. Destructive confirms use `--confirm-name`.
 
-Out of scope: billing, members, workspace settings, AI helpers, notifications, customers.
+Global flags: `--json`, `--table` (force human output when not a TTY), `--dry-run` (mutating HTTP only), `--profile`, `--api-url`.
+
+Not in the CLI: platform admin, Clerk login, Stripe checkout/portal/downgrade, visual preview, `/v1/sdk/*`.
 
 Default API: `https://api.getrheo.io`. Override with `--api-url` or `RHEO_API_URL`.
 

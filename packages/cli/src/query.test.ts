@@ -6,6 +6,18 @@ describe('buildQueryPath', () => {
     expect(buildQueryPath('/v1/dashboard/apps', {})).toBe('/v1/dashboard/apps');
   });
 
+  it('repeats keys for array values', () => {
+    expect(
+      buildQueryPath('/v1/dashboard/apps/app_1/product-analytics/events', {
+        environment: 'live',
+        xf_source: ['facebook', 'google'],
+        xf_page: [],
+      }),
+    ).toBe(
+      '/v1/dashboard/apps/app_1/product-analytics/events?environment=live&xf_source=facebook&xf_source=google',
+    );
+  });
+
   it('appends encoded query params and skips undefined', () => {
     expect(
       buildQueryPath('/v1/dashboard/apps/app_1/analytics', {

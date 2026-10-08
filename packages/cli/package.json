@@ -1,8 +1,8 @@
 {
   "name": "@getrheo/cli",
-  "version": "2.6.0",
+  "version": "3.0.0",
   "type": "module",
-  "description": "Rheo CLI — workspace automation for apps, flows, channels, experiments, analytics, rollouts, and media.",
+  "description": "Rheo CLI — workspace automation for apps, flows, channels, experiments, analytics, rollouts, media, Engage, customers, and local import.",
   "bin": {
     "rheo": "./dist/index.js"
   },
@@ -18,6 +18,9 @@
     "build": "tsup",
     "prepublishOnly": "pnpm run build"
   },
+  "dependencies": {
+    "@getrheo/rheo-skill": "3.0.0"
+  },
   "devDependencies": {
     "@rheo/config": "workspace:*",
     "@types/node": "^22.10.1",
@@ -27,7 +30,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "package.json"
   ],
   "license": "MIT",
   "publishConfig": {
