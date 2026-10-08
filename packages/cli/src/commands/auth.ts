@@ -8,29 +8,48 @@ import {
 } from '../config.js';
 import { printBanner } from '../banner.js';
 import { printError, printJson, printKv, printSuccess } from '../format.js';
+import { CliHttpError, createHttpClient } from '../http.js';
 
 /** Matches `@getrheo/contracts` `WORKSPACE_API_KEY_PREFIX` (kept local so CLI builds against published npm contracts). */
 const WORKSPACE_API_KEY_PREFIX = 'rheo_wk_';
 
-export const runAuthLogin = (opts: {
+export const runAuthLogin = async (opts: {
   apiKey: string;
   profile: string;
   apiUrl?: string;
   json?: boolean;
   configPath?: string;
-}): number => {
+  fetchImpl?: typeof fetch;
+}): Promise<number> => {
   const key = opts.apiKey.trim();
   if (!key.startsWith(WORKSPACE_API_KEY_PREFIX)) {
     printError(`Expected a workspace API key starting with ${WORKSPACE_API_KEY_PREFIX}`);
     return 1;
   }
+  const apiUrl = (opts.apiUrl ?? DEFAULT_API_URL).replace(/\/$/, '');
+  const http = createHttpClient({
+    apiUrl,
+    apiKey: key,
+    fetchImpl: opts.fetchImpl,
+  });
+  try {
+    await http.get('/v1/dashboard/workspace');
+  } catch (err) {
+    if (err instanceof CliHttpError && (err.status === 401 || err.status === 403)) {
+      printError(err.message);
+      return 2;
+    }
+    printError(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
   const configPath = opts.configPath ?? resolveConfigPath();
   setProfile(
     configPath,
     opts.profile,
     {
       apiKey: key,
-      apiUrl: (opts.apiUrl ?? DEFAULT_API_URL).replace(/\/$/, ''),
+      apiUrl,
     },
     true,
   );

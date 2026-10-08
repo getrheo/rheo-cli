@@ -1,7 +1,9 @@
 import { resolveAuth, resolveConfigPath } from './config.js';
 import { createHttpClient, CliHttpError } from './http.js';
 import { resolveJsonPayload, requireFlag } from './body.js';
-import { flagBool, flagString } from './query.js';
+import { flagBool, flagString, type CliFlags } from './query.js';
+import { preferJson } from './output.js';
+import { runVersion } from './version.js';
 import { runAuthLogin, runAuthLogout, runAuthStatus } from './commands/auth.js';
 import { runWhoami } from './commands/whoami.js';
 import {
@@ -80,9 +82,39 @@ import {
   runMediaUpload,
 } from './commands/media.js';
 import { printBanner } from './banner.js';
+import { ENGAGE_USAGE, runEngageCommand } from './commands/engage.js';
+import {
+  PRODUCT_ANALYTICS_USAGE,
+  runProductAnalyticsCommand,
+} from './commands/productAnalytics.js';
+import { runCustomersCommand } from './commands/customers.js';
+import { BANNERS_USAGE, runBannersCommand } from './commands/banners.js';
+import { KEYS_USAGE, runAppsKeysList, runKeysCommand } from './commands/keys.js';
+import { MEMBERS_USAGE, runMembersCommand } from './commands/members.js';
+import { BILLING_USAGE, runBillingStatus } from './commands/billing.js';
+import { runWorkspaceMauSidebar, runWorkspaceUpdate } from './commands/workspaceCmd.js';
+import {
+  runFlowCommentsCommand,
+  runFlowRheoAgent,
+  runRolloutsComment,
+} from './commands/comments.js';
+import {
+  runAiBrandColors,
+  runAiTranslateChunk,
+  runAppsAttributionSignal,
+  runMeCommand,
+  runMediaUsage,
+  runNotificationsCommand,
+  runOnboardingCommand,
+  runSelfServeCommand,
+  runStoreListingLookup,
+} from './commands/workspaceSurface.js';
+import { IMPORT_USAGE, runImportCommand } from './commands/importCmd.js';
 
 export type GlobalFlags = {
   json: boolean;
+  table: boolean;
+  dryRun: boolean;
   profile?: string;
   apiUrl?: string;
   help: boolean;
@@ -94,17 +126,25 @@ Auth:
   rheo auth login --api-key <key> [--profile <name>] [--api-url <url>]
   rheo auth logout [--profile <name>]
   rheo auth status [--profile <name>]
+  rheo version
 
 Workspace / apps:
-  rheo whoami | rheo workspace show
+  rheo whoami | rheo workspace show | rheo workspace update --body|--file
+  rheo workspace mau-sidebar
   rheo apps list | rheo apps get <appId>
   rheo apps create --body|--file
   rheo apps update <appId> --body|--file
   rheo apps branding <appId> --body|--file
   rheo apps delete <appId> --confirm-name <name>
+  rheo apps keys list <appId>
+  rheo apps attribution-signal <appId>
+
+Customers:
+  rheo customers overview|list <appId>
+  rheo customers get|variables <appId> <appUserId>
 
 Flows:
-  rheo flows list <appId> | rheo flows get <flowId>
+  rheo flows list <appId> [--include-archived] | rheo flows get <flowId>
   rheo flows draft <flowId> [--out <file>]
   rheo flows versions <flowId> | rheo flows version <flowId> <versionId> [--out <file>]
   rheo flows create <appId> --body|--file
@@ -113,6 +153,11 @@ Flows:
   rheo flows publish <flowId> [--body|--file]
   rheo flows archive|unarchive <flowId>
   rheo flows duplicate <flowId> [--body|--file]
+  rheo flows comments … | rheo flows rheo-agent <flowId> --body|--file
+
+Banners (rheo banners help):
+  rheo banners list|create <appId> …
+  rheo banners get|update|draft|publish|rheo-agent <bannerId> …
 
 Channels:
   rheo channels list <appId> [--include-archived]
@@ -137,12 +182,15 @@ Analytics (default --env live; omit dates → last 7 UTC days):
   rheo analytics app-overview <appId>
   rheo analytics <kind> <flowId>
   kinds: ${FLOW_ANALYTICS_KINDS.join(', ')}
+  rheo analytics product <view> <appId>
+  product views: rheo analytics product help
 
 Rollouts:
   rheo rollouts policy | rheo rollouts policy-set --body|--file
   rheo rollouts list | rheo rollouts get <id>
   rheo rollouts channel-list <appId> <channelId>
   rheo rollouts submit|approve|reject …
+  rheo rollouts comment <id> --body|--file
 
 Media:
   rheo media list
@@ -151,9 +199,33 @@ Media:
   rheo media upload --file <path> [--type] [--content-type] [--name]
   rheo media rename <assetId> --name-stem <stem>
   rheo media archive <assetId>
+  rheo media usage <assetId>
+
+Engage (full list: rheo engage help):
+  rheo engage overview|health|settings|provider|contacts|templates|segments …
+  rheo engage content-blocks|broadcasts|automations|topics|consent|deliverability …
+  rheo engage attribute-keys|event-names|test-send|preview-merge-tags|audience-estimate|preference-preview
+
+Keys / members / billing:
+  rheo keys workspace list|create|revoke …
+  rheo members list|invite|update|remove|transfer-ownership …
+  rheo billing status
+
+Workspace surface:
+  rheo notifications list [--unread] | read <id> | read-all
+  rheo me email-preferences [get|update] | rheo me signup-attribution --body|--file
+  rheo onboarding get|verify|complete|dismiss …
+  rheo self-serve status|accept-terms|complete-profile-name|complete-workspace-name|tour-dismiss …
+  rheo store-listing-lookup --body|--file
+  rheo ai brand-colors <appId> --body|--file | rheo ai translate-chunk --body|--file
+
+Local import (rheo import help):
+  rheo import validate|normalize|summary|scaffold|audit|audit-publish|profile …
 
 Global flags:
   --json              JSON output (lists); mutations/analytics/stats always JSON
+  --table             Force human tables when stdout is not a TTY
+  --dry-run           Print mutating HTTP without calling the API
   --profile <name>    Config profile
   --api-url <url>     Override API base URL
   -h, --help          Show help
@@ -183,9 +255,75 @@ const VALUE_FLAGS = new Set([
   'content-type',
   'name',
   'name-stem',
+  'q',
+  'days',
+  'cursor',
+  'status',
+  'note',
+  'platform',
+  'segment-id',
+  'grain',
+  'source',
+  'campaign',
+  'medium',
+  'content',
+  'term',
+  'adset',
+  'creative',
+  'country',
+  'region',
+  'city',
+  'browsers',
+  'operating-systems',
+  'devices',
+  'page',
+  'entry',
+  'exit',
+  'value',
+  'xf-op-acquisition-channel',
+  'xf-op-referrer',
+  'xf-op-source',
+  'xf-op-campaign',
+  'xf-op-medium',
+  'xf-op-country',
+  'xf-op-region',
+  'xf-op-browser',
+  'xf-op-os',
+  'xf-op-device',
+  'xf-op-page',
+  'xf-op-event',
+  'xf-op-entry',
+  'xf-op-exit',
+  'filter',
 ]);
 
-const BOOL_FLAGS = new Set(['include-archived', 'json']);
+/** Repeated flags. Commas in one value are additional entries. */
+const MULTI_VALUE_FLAGS = new Set([
+  'xf-acquisition-channel',
+  'xf-referrer',
+  'xf-source',
+  'xf-campaign',
+  'xf-medium',
+  'xf-country',
+  'xf-region',
+  'xf-browser',
+  'xf-os',
+  'xf-device',
+  'xf-page',
+  'xf-event',
+  'xf-entry',
+  'xf-exit',
+]);
+
+const BOOL_FLAGS = new Set([
+  'include-archived',
+  'json',
+  'table',
+  'dry-run',
+  'unread',
+  'offline-profile',
+  'write',
+]);
 
 const takeFlagValue = (argv: string[], i: number): { value: string; next: number } | null => {
   const cur = argv[i];
@@ -198,14 +336,28 @@ const takeFlagValue = (argv: string[], i: number): { value: string; next: number
   return { value: next, next: i + 1 };
 };
 
+const splitMulti = (raw: string): string[] =>
+  raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+const appendMultiFlag = (flags: CliFlags, name: string, raw: string): void => {
+  const parts = splitMulti(raw);
+  if (parts.length === 0) throw new Error(`--${name} requires a value`);
+  const current = flags[name];
+  const prev = Array.isArray(current) ? current : [];
+  flags[name] = [...prev, ...parts];
+};
+
 export const parseArgv = (argv: string[]): {
   globals: GlobalFlags;
   command: string[];
-  flags: Record<string, string | boolean>;
+  flags: CliFlags;
 } => {
-  const globals: GlobalFlags = { json: false, help: false };
+  const globals: GlobalFlags = { json: false, table: false, dryRun: false, help: false };
   const command: string[] = [];
-  const flags: Record<string, string | boolean> = {};
+  const flags: CliFlags = {};
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
     if (arg === '-h' || arg === '--help') {
@@ -214,6 +366,14 @@ export const parseArgv = (argv: string[]): {
     }
     if (arg === '--json') {
       globals.json = true;
+      continue;
+    }
+    if (arg === '--table') {
+      globals.table = true;
+      continue;
+    }
+    if (arg === '--dry-run') {
+      globals.dryRun = true;
       continue;
     }
     if (arg === '--profile' || arg.startsWith('--profile=')) {
@@ -242,6 +402,13 @@ export const parseArgv = (argv: string[]): {
       flags[name] = true;
       continue;
     }
+    if (name && MULTI_VALUE_FLAGS.has(name)) {
+      const taken = takeFlagValue(argv, i);
+      if (!taken) throw new Error(`--${name} requires a value`);
+      appendMultiFlag(flags, name, taken.value);
+      i = taken.next;
+      continue;
+    }
     if (name && VALUE_FLAGS.has(name)) {
       const taken = takeFlagValue(argv, i);
       if (!taken) throw new Error(`--${name} requires a value`);
@@ -267,6 +434,22 @@ const needArg = (value: string | undefined, label: string): string | null => {
 };
 
 export const runCli = async (argv: string[]): Promise<number> => {
+  const importIdx = argv.indexOf('import');
+  if (importIdx >= 0) {
+    let globals: GlobalFlags;
+    try {
+      globals = parseArgv(argv.slice(0, importIdx)).globals;
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      return 1;
+    }
+    if (globals.help) {
+      process.stdout.write(IMPORT_USAGE);
+      return 0;
+    }
+    return runImportCommand(argv.slice(importIdx + 1));
+  }
+
   let parsed;
   try {
     parsed = parseArgv(argv);
@@ -276,13 +459,18 @@ export const runCli = async (argv: string[]): Promise<number> => {
   }
 
   const { globals, command, flags } = parsed;
+  const jsonOut = preferJson({ json: globals.json, table: globals.table });
   if (globals.help || command.length === 0) {
-    if (!globals.json) printBanner();
+    if (!jsonOut) printBanner();
     process.stdout.write(usage);
     return command.length === 0 && !globals.help ? 1 : 0;
   }
 
   const [cmd, sub, ...rest] = command;
+
+  if (cmd === 'version') {
+    return runVersion({ json: jsonOut });
+  }
 
   if (cmd === 'auth') {
     if (sub === 'login') {
@@ -291,18 +479,18 @@ export const runCli = async (argv: string[]): Promise<number> => {
         process.stderr.write('Missing --api-key\n');
         return 1;
       }
-      return runAuthLogin({
+      return await runAuthLogin({
         apiKey,
         profile: globals.profile ?? 'default',
         apiUrl: globals.apiUrl,
-        json: globals.json,
+        json: jsonOut,
         configPath: resolveConfigPath(),
       });
     }
     if (sub === 'logout') {
       return runAuthLogout({
         profile: globals.profile,
-        json: globals.json,
+        json: jsonOut,
         configPath: resolveConfigPath(),
       });
     }
@@ -310,7 +498,7 @@ export const runCli = async (argv: string[]): Promise<number> => {
       return runAuthStatus({
         profile: globals.profile,
         apiUrl: globals.apiUrl,
-        json: globals.json,
+        json: jsonOut,
         configPath: resolveConfigPath(),
       });
     }
@@ -324,15 +512,20 @@ export const runCli = async (argv: string[]): Promise<number> => {
       process.stderr.write('Missing --api-key\n');
       return 1;
     }
-    return runAuthLogin({
+    return await runAuthLogin({
       apiKey,
       profile: globals.profile ?? 'default',
       apiUrl: globals.apiUrl,
-      json: globals.json,
+      json: jsonOut,
     });
   }
   if (cmd === 'logout') {
-    return runAuthLogout({ profile: globals.profile, json: globals.json });
+    return runAuthLogout({ profile: globals.profile, json: jsonOut });
+  }
+
+  if (cmd === 'analytics' && sub === 'product' && (!rest[0] || rest[0] === 'help')) {
+    process.stdout.write(PRODUCT_ANALYTICS_USAGE);
+    return rest[0] === 'help' ? 0 : 1;
   }
 
   let auth;
@@ -342,7 +535,11 @@ export const runCli = async (argv: string[]): Promise<number> => {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   }
-  const http = createHttpClient({ apiUrl: auth.apiUrl, apiKey: auth.apiKey });
+  const http = createHttpClient({
+    apiUrl: auth.apiUrl,
+    apiKey: auth.apiKey,
+    dryRun: globals.dryRun,
+  });
 
   const rangeFlags = {
     start: flagString(flags, 'start'),
@@ -354,14 +551,30 @@ export const runCli = async (argv: string[]): Promise<number> => {
 
   try {
     if (cmd === 'whoami' || (cmd === 'workspace' && sub === 'show')) {
-      return await runWhoami({ http, json: globals.json });
+      return await runWhoami({ http, json: jsonOut });
+    }
+    if (cmd === 'workspace' && sub === 'update') {
+      return await runWorkspaceUpdate({ http, flags });
+    }
+    if (cmd === 'workspace' && sub === 'mau-sidebar') {
+      return await runWorkspaceMauSidebar({ http });
     }
 
-    if (cmd === 'apps' && sub === 'list') return await runAppsList({ http, json: globals.json });
+    if (cmd === 'apps' && sub === 'list') return await runAppsList({ http, json: jsonOut });
     if (cmd === 'apps' && sub === 'get') {
       const appId = needArg(rest[0], '<appId>');
       if (!appId) return 1;
-      return await runAppsGet({ http, appId, json: globals.json });
+      return await runAppsGet({ http, appId, json: jsonOut });
+    }
+    if (cmd === 'apps' && sub === 'keys' && rest[0] === 'list') {
+      const appId = needArg(rest[1], '<appId>');
+      if (!appId) return 1;
+      return await runAppsKeysList({ http, appId, json: jsonOut });
+    }
+    if (cmd === 'apps' && sub === 'attribution-signal') {
+      const appId = needArg(rest[0], '<appId>');
+      if (!appId) return 1;
+      return await runAppsAttributionSignal({ http, appId });
     }
     if (cmd === 'apps' && sub === 'create') {
       return await runAppsCreate({ http, body: jsonBody() });
@@ -389,12 +602,17 @@ export const runCli = async (argv: string[]): Promise<number> => {
     if (cmd === 'flows' && sub === 'list') {
       const appId = needArg(rest[0], '<appId>');
       if (!appId) return 1;
-      return await runFlowsList({ http, appId, json: globals.json });
+      return await runFlowsList({
+        http,
+        appId,
+        includeArchived: flagBool(flags, 'include-archived'),
+        json: jsonOut,
+      });
     }
     if (cmd === 'flows' && sub === 'get') {
       const flowId = needArg(rest[0], '<flowId>');
       if (!flowId) return 1;
-      return await runFlowsGet({ http, flowId, json: globals.json });
+      return await runFlowsGet({ http, flowId, json: jsonOut });
     }
     if (cmd === 'flows' && sub === 'draft') {
       const flowId = needArg(rest[0], '<flowId>');
@@ -403,13 +621,13 @@ export const runCli = async (argv: string[]): Promise<number> => {
         http,
         flowId,
         out: flagString(flags, 'out'),
-        json: globals.json,
+        json: jsonOut,
       });
     }
     if (cmd === 'flows' && sub === 'versions') {
       const flowId = needArg(rest[0], '<flowId>');
       if (!flowId) return 1;
-      return await runFlowsVersions({ http, flowId, json: globals.json });
+      return await runFlowsVersions({ http, flowId, json: jsonOut });
     }
     if (cmd === 'flows' && sub === 'version') {
       const flowId = needArg(rest[0], '<flowId>');
@@ -420,7 +638,7 @@ export const runCli = async (argv: string[]): Promise<number> => {
         flowId,
         versionId,
         out: flagString(flags, 'out'),
-        json: globals.json,
+        json: jsonOut,
       });
     }
     if (cmd === 'flows' && sub === 'create') {
@@ -466,6 +684,41 @@ export const runCli = async (argv: string[]): Promise<number> => {
         body: jsonBody({ optional: true, emptyObjectWhenMissing: true }),
       });
     }
+    if (cmd === 'flows' && sub === 'comments') {
+      return await runFlowCommentsCommand({
+        http,
+        args: rest,
+        flags,
+        json: jsonOut,
+      });
+    }
+    if (cmd === 'flows' && sub === 'rheo-agent') {
+      const flowId = needArg(rest[0], '<flowId>');
+      if (!flowId) return 1;
+      return await runFlowRheoAgent({ http, flowId, flags });
+    }
+
+    if (cmd === 'customers') {
+      return await runCustomersCommand({
+        http,
+        args: [sub, ...rest].filter(Boolean) as string[],
+        flags,
+        json: jsonOut,
+      });
+    }
+
+    if (cmd === 'banners') {
+      if (!sub || sub === 'help') {
+        process.stdout.write(BANNERS_USAGE);
+        return sub === 'help' ? 0 : 1;
+      }
+      return await runBannersCommand({
+        http,
+        args: [sub, ...rest],
+        flags,
+        json: jsonOut,
+      });
+    }
 
     if (cmd === 'channels' && sub === 'list') {
       const appId = needArg(rest[0], '<appId>');
@@ -474,7 +727,7 @@ export const runCli = async (argv: string[]): Promise<number> => {
         http,
         appId,
         includeArchived: flagBool(flags, 'include-archived'),
-        json: globals.json,
+        json: jsonOut,
       });
     }
     if (cmd === 'channels' && sub === 'history') {
@@ -487,7 +740,7 @@ export const runCli = async (argv: string[]): Promise<number> => {
         channelId,
         limit: flagString(flags, 'limit'),
         offset: flagString(flags, 'offset'),
-        json: globals.json,
+        json: jsonOut,
       });
     }
     if (cmd === 'channels' && sub === 'create') {
@@ -538,7 +791,7 @@ export const runCli = async (argv: string[]): Promise<number> => {
         http,
         appId,
         includeArchived: flagBool(flags, 'include-archived'),
-        json: globals.json,
+        json: jsonOut,
       });
     }
     if (cmd === 'experiments' && sub === 'get') {
@@ -668,6 +921,9 @@ export const runCli = async (argv: string[]): Promise<number> => {
         ...rangeFlags,
       });
     }
+    if (cmd === 'analytics' && sub === 'product') {
+      return await runProductAnalyticsCommand({ http, args: rest, flags });
+    }
     if (cmd === 'analytics' && sub && isFlowAnalyticsKind(sub)) {
       const flowId = needArg(rest[0], '<flowId>');
       if (!flowId) return 1;
@@ -688,7 +944,7 @@ export const runCli = async (argv: string[]): Promise<number> => {
       return await runRolloutsPolicySet({ http, body: jsonBody() });
     }
     if (cmd === 'rollouts' && sub === 'list') {
-      return await runRolloutsList({ http, json: globals.json });
+      return await runRolloutsList({ http, json: jsonOut });
     }
     if (cmd === 'rollouts' && sub === 'channel-list') {
       const appId = needArg(rest[0], '<appId>');
@@ -722,9 +978,14 @@ export const runCli = async (argv: string[]): Promise<number> => {
         body: jsonBody({ optional: true, emptyObjectWhenMissing: true }),
       });
     }
+    if (cmd === 'rollouts' && sub === 'comment') {
+      const id = needArg(rest[0], '<id>');
+      if (!id) return 1;
+      return await runRolloutsComment({ http, id, flags });
+    }
 
     if (cmd === 'media' && sub === 'list') {
-      return await runMediaList({ http, json: globals.json });
+      return await runMediaList({ http, json: jsonOut });
     }
     if (cmd === 'media' && sub === 'sign-upload') {
       return await runMediaSignUpload({ http, body: jsonBody() });
@@ -754,6 +1015,102 @@ export const runCli = async (argv: string[]): Promise<number> => {
       const assetId = needArg(rest[0], '<assetId>');
       if (!assetId) return 1;
       return await runMediaArchive({ http, assetId });
+    }
+    if (cmd === 'media' && sub === 'usage') {
+      const assetId = needArg(rest[0], '<assetId>');
+      if (!assetId) return 1;
+      return await runMediaUsage({ http, assetId });
+    }
+
+    if (cmd === 'engage') {
+      if (!sub || sub === 'help') {
+        process.stdout.write(ENGAGE_USAGE);
+        return sub === 'help' ? 0 : 1;
+      }
+      return await runEngageCommand({
+        http,
+        args: [sub, ...rest],
+        flags,
+        json: jsonOut,
+      });
+    }
+
+    if (cmd === 'keys') {
+      if (!sub || sub === 'help') {
+        process.stdout.write(KEYS_USAGE);
+        return sub === 'help' ? 0 : 1;
+      }
+      return await runKeysCommand({
+        http,
+        args: [sub, ...rest],
+        flags,
+        json: jsonOut,
+      });
+    }
+
+    if (cmd === 'members') {
+      if (!sub || sub === 'help') {
+        process.stdout.write(MEMBERS_USAGE);
+        return sub === 'help' ? 0 : 1;
+      }
+      return await runMembersCommand({
+        http,
+        args: [sub, ...rest],
+        flags,
+        json: jsonOut,
+      });
+    }
+
+    if (cmd === 'billing') {
+      if (sub === 'status') return await runBillingStatus({ http });
+      process.stdout.write(BILLING_USAGE);
+      return sub === 'help' ? 0 : 1;
+    }
+
+    if (cmd === 'notifications') {
+      return await runNotificationsCommand({
+        http,
+        args: [sub, ...rest].filter(Boolean) as string[],
+        flags,
+        json: jsonOut,
+      });
+    }
+
+    if (cmd === 'me') {
+      return await runMeCommand({
+        http,
+        args: [sub, ...rest].filter(Boolean) as string[],
+        flags,
+      });
+    }
+
+    if (cmd === 'onboarding') {
+      return await runOnboardingCommand({
+        http,
+        args: [sub, ...rest].filter(Boolean) as string[],
+        flags,
+      });
+    }
+
+    if (cmd === 'self-serve') {
+      return await runSelfServeCommand({
+        http,
+        args: [sub, ...rest].filter(Boolean) as string[],
+        flags,
+      });
+    }
+
+    if (cmd === 'store-listing-lookup') {
+      return await runStoreListingLookup({ http, flags });
+    }
+
+    if (cmd === 'ai' && sub === 'brand-colors') {
+      const appId = needArg(rest[0], '<appId>');
+      if (!appId) return 1;
+      return await runAiBrandColors({ http, appId, flags });
+    }
+    if (cmd === 'ai' && sub === 'translate-chunk') {
+      return await runAiTranslateChunk({ http, flags });
     }
 
     process.stderr.write(`Unknown command: ${command.join(' ')}\n`);

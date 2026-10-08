@@ -1,3 +1,7 @@
+import { appendQueryParams, type QueryParams } from './query.js';
+
+export type { QueryParams };
+
 export class CliHttpError extends Error {
   override readonly name = 'CliHttpError';
   constructor(
@@ -9,24 +13,28 @@ export class CliHttpError extends Error {
   }
 }
 
-export type QueryParams = Record<string, string | number | boolean | undefined | null>;
-
 export type HttpClient = {
   get: (path: string, query?: QueryParams) => Promise<unknown>;
+  /** Raw response body. Used for CSV exports that are not JSON. */
+  getText: (path: string, query?: QueryParams) => Promise<string>;
   post: (path: string, body?: unknown, query?: QueryParams) => Promise<unknown>;
   patch: (path: string, body?: unknown, query?: QueryParams) => Promise<unknown>;
   put: (path: string, body?: unknown, query?: QueryParams) => Promise<unknown>;
   delete: (path: string, body?: unknown, query?: QueryParams) => Promise<unknown>;
+  /** Stream NDJSON / SSE bodies to stdout (Rheo Agent endpoints). */
+  stream: (
+    method: string,
+    path: string,
+    body?: unknown,
+    query?: QueryParams,
+  ) => Promise<void>;
 };
+
+const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
 const buildUrl = (apiUrl: string, path: string, query?: QueryParams): string => {
   const params = new URLSearchParams();
-  if (query) {
-    for (const [key, value] of Object.entries(query)) {
-      if (value === undefined || value === null || value === '') continue;
-      params.set(key, String(value));
-    }
-  }
+  if (query) appendQueryParams(params, query);
   const qs = params.toString();
   const normalized = path.startsWith('/') ? path : `/${path}`;
   return `${apiUrl.replace(/\/$/, '')}${normalized}${qs ? `?${qs}` : ''}`;
@@ -43,23 +51,49 @@ const parseErrorMessage = (status: number, text: string): string => {
   return message;
 };
 
+const writeDryRun = (method: string, url: string, body?: unknown): void => {
+  process.stdout.write(`dry-run ${method} ${url}\n`);
+  if (body !== undefined) {
+    process.stdout.write(`${JSON.stringify(body, null, 2)}\n`);
+  }
+};
+
+const emitStreamLine = (line: string): void => {
+  const trimmed = line.replace(/\r$/, '');
+  if (!trimmed) return;
+  if (trimmed.startsWith('data:')) {
+    const data = trimmed.slice(5).trimStart();
+    process.stdout.write(`${data}\n`);
+    return;
+  }
+  if (trimmed.startsWith('event:') || trimmed.startsWith(':') || trimmed.startsWith('id:')) {
+    return;
+  }
+  process.stdout.write(`${trimmed}\n`);
+};
+
 export const createHttpClient = (opts: {
   apiUrl: string;
   apiKey: string;
   fetchImpl?: typeof fetch;
+  dryRun?: boolean;
 }): HttpClient => {
   const fetchImpl = opts.fetchImpl ?? fetch;
 
-  const request = async (
+  const requestText = async (
     method: string,
     path: string,
     body?: unknown,
     query?: QueryParams,
-  ): Promise<unknown> => {
+  ): Promise<string> => {
     const url = buildUrl(opts.apiUrl, path, query);
+    if (opts.dryRun && MUTATING.has(method)) {
+      writeDryRun(method, url, body);
+      return '';
+    }
     const headers: Record<string, string> = {
       authorization: `Bearer ${opts.apiKey}`,
-      accept: 'application/json',
+      accept: 'application/json, text/csv',
     };
     let payload: string | undefined;
     if (body !== undefined) {
@@ -71,15 +105,72 @@ export const createHttpClient = (opts: {
     if (!res.ok) {
       throw new CliHttpError(res.status, text, parseErrorMessage(res.status, text));
     }
-    if (!text || res.status === 204) return null;
+    return text;
+  };
+
+  const requestJson = async (
+    method: string,
+    path: string,
+    body?: unknown,
+    query?: QueryParams,
+  ): Promise<unknown> => {
+    const text = await requestText(method, path, body, query);
+    if (!text) return null;
     return JSON.parse(text) as unknown;
   };
 
+  const stream = async (
+    method: string,
+    path: string,
+    body?: unknown,
+    query?: QueryParams,
+  ): Promise<void> => {
+    const url = buildUrl(opts.apiUrl, path, query);
+    if (opts.dryRun && MUTATING.has(method)) {
+      writeDryRun(method, url, body);
+      return;
+    }
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${opts.apiKey}`,
+      accept: 'application/x-ndjson, text/event-stream, application/json',
+    };
+    let payload: string | undefined;
+    if (body !== undefined) {
+      headers['content-type'] = 'application/json';
+      payload = JSON.stringify(body);
+    }
+    const res = await fetchImpl(url, { method, headers, body: payload });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new CliHttpError(res.status, text, parseErrorMessage(res.status, text));
+    }
+    if (!res.body) {
+      const text = await res.text();
+      for (const line of text.split('\n')) emitStreamLine(line);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n');
+      buffer = parts.pop() ?? '';
+      for (const line of parts) emitStreamLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer) emitStreamLine(buffer);
+  };
+
   return {
-    get: (path, query) => request('GET', path, undefined, query),
-    post: (path, body, query) => request('POST', path, body ?? {}, query),
-    patch: (path, body, query) => request('PATCH', path, body ?? {}, query),
-    put: (path, body, query) => request('PUT', path, body ?? {}, query),
-    delete: (path, body, query) => request('DELETE', path, body, query),
+    get: (path, query) => requestJson('GET', path, undefined, query),
+    getText: (path, query) => requestText('GET', path, undefined, query),
+    post: (path, body, query) => requestJson('POST', path, body ?? {}, query),
+    patch: (path, body, query) => requestJson('PATCH', path, body ?? {}, query),
+    put: (path, body, query) => requestJson('PUT', path, body ?? {}, query),
+    delete: (path, body, query) => requestJson('DELETE', path, body, query),
+    stream,
   };
 };

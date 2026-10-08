@@ -9,6 +9,8 @@ const PRODUCT_WRITE_CAPS = [
   'channel:manage',
   'experiment:manage',
   'media:manage',
+  'engage:manage',
+  'engage:send',
   'rollout:approve',
 ] as const;
 

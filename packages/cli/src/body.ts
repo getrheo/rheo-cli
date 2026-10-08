@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { flagString } from './query.js';
+import { flagString, type CliFlags } from './query.js';
 
 export const readJsonValue = (raw: string): unknown => {
   try {
@@ -19,7 +19,7 @@ export const readJsonFromFile = (path: string): unknown => {
  * Exactly one must be provided unless `optional` is true.
  */
 export const resolveJsonPayload = (
-  flags: Record<string, string | boolean>,
+  flags: CliFlags,
   opts: { optional?: boolean; emptyObjectWhenMissing?: boolean } = {},
 ): unknown => {
   const body = flagString(flags, 'body');
@@ -34,7 +34,7 @@ export const resolveJsonPayload = (
 };
 
 export const requireFlag = (
-  flags: Record<string, string | boolean>,
+  flags: CliFlags,
   name: string,
   label = `--${name}`,
 ): string => {

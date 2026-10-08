@@ -1,12 +1,21 @@
-export const buildQueryPath = (
-  path: string,
-  query: Record<string, string | number | boolean | undefined | null>,
-): string => {
-  const params = new URLSearchParams();
+export type QueryValue = string | number | boolean | null | undefined;
+
+/** Repeated keys are OR lists (product analytics cross filters). */
+export type QueryParams = Record<string, QueryValue | readonly QueryValue[]>;
+
+export const appendQueryParams = (params: URLSearchParams, query: QueryParams): void => {
   for (const [key, value] of Object.entries(query)) {
-    if (value === undefined || value === null || value === '') continue;
-    params.set(key, String(value));
+    const values = Array.isArray(value) ? value : [value];
+    for (const item of values) {
+      if (item === undefined || item === null || item === '') continue;
+      params.append(key, String(item));
+    }
   }
+};
+
+export const buildQueryPath = (path: string, query: QueryParams): string => {
+  const params = new URLSearchParams();
+  appendQueryParams(params, query);
   const qs = params.toString();
   if (!qs) return path;
   return `${path}?${qs}`;
@@ -22,13 +31,22 @@ export const parseEnvironment = (raw: string | undefined, fallback: SdkEnvironme
   return v;
 };
 
-export const flagString = (
-  flags: Record<string, string | boolean>,
-  name: string,
-): string | undefined => {
+export type CliFlagValue = string | boolean | string[];
+
+export type CliFlags = Record<string, CliFlagValue>;
+
+export const flagString = (flags: CliFlags, name: string): string | undefined => {
   const v = flags[name];
   return typeof v === 'string' ? v : undefined;
 };
 
-export const flagBool = (flags: Record<string, string | boolean>, name: string): boolean =>
+/** Values for a repeated flag. A single string is one value. */
+export const flagStrings = (flags: CliFlags, name: string): string[] => {
+  const v = flags[name];
+  if (typeof v === 'string') return v.length > 0 ? [v] : [];
+  if (Array.isArray(v)) return v.filter((item) => item.length > 0);
+  return [];
+};
+
+export const flagBool = (flags: CliFlags, name: string): boolean =>
   flags[name] === true || flags[name] === 'true';
